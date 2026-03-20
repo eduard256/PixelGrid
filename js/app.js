@@ -23,6 +23,7 @@ const App = (() => {
     },
     previewMode: 'result', // 'original' | 'result'
     activeTool: 'crop',    // 'crop' | 'blur'
+    lockRatio: true,       // lock crop aspect ratio to target size
   };
 
   // ----------------------------------------------------------
@@ -51,6 +52,7 @@ const App = (() => {
       targetW:       document.getElementById('targetWidth'),
       targetH:       document.getElementById('targetHeight'),
       aspectRatio:   document.getElementById('aspectRatio'),
+      lockRatio:     document.getElementById('lockRatio'),
 
       infoOrigSize:  document.getElementById('infoOrigSize'),
       infoCropSize:  document.getElementById('infoCropSize'),
@@ -139,6 +141,7 @@ const App = (() => {
     // Target size
     dom.targetW.addEventListener('input', onTargetSizeChange);
     dom.targetH.addEventListener('input', onTargetSizeChange);
+    dom.lockRatio.addEventListener('click', toggleLockRatio);
 
     // Grid toggles
     dom.gridToggles.forEach(btn => {
@@ -461,6 +464,7 @@ const App = (() => {
     dom.infoOrigSize.textContent = entry.img.naturalWidth + ' x ' + entry.img.naturalHeight;
 
     CanvasEditor.loadImage(entry);
+    CanvasEditor.setLockedRatio(state.lockRatio ? state.targetW / state.targetH : null);
   }
 
   // ----------------------------------------------------------
@@ -471,6 +475,10 @@ const App = (() => {
     state.targetH = Math.max(1, parseInt(dom.targetH.value) || 1);
     updateAspectRatio();
     persistSize();
+    // Update locked ratio in canvas if lock is active
+    if (state.lockRatio) {
+      CanvasEditor.setLockedRatio(state.targetW / state.targetH);
+    }
     applyTargetSizeCrop();
   }
 
@@ -531,6 +539,32 @@ const App = (() => {
   }
 
   function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+
+  function toggleLockRatio() {
+    state.lockRatio = !state.lockRatio;
+    dom.lockRatio.classList.toggle('size-input__lock--active', state.lockRatio);
+
+    // Update lock icon: closed vs open padlock
+    const svg = dom.lockRatio.querySelector('svg');
+    if (svg) {
+      const path = svg.querySelector('path');
+      if (path) {
+        if (state.lockRatio) {
+          path.setAttribute('d', 'M5 7V5a3 3 0 016 0v2');
+        } else {
+          path.setAttribute('d', 'M5 7V5a3 3 0 016 0');
+        }
+      }
+    }
+
+    // Notify canvas about ratio lock change
+    CanvasEditor.setLockedRatio(state.lockRatio ? state.targetW / state.targetH : null);
+  }
+
+  // Returns the locked aspect ratio or null if unlocked
+  function getLockedRatio() {
+    return state.lockRatio ? state.targetW / state.targetH : null;
+  }
 
   function persistSize() {
     try {
@@ -926,6 +960,7 @@ const App = (() => {
     addBlurRegion,
     renderBlurList,
     getBlurIntensity,
+    getLockedRatio,
     get dom() { return dom; },
   };
 

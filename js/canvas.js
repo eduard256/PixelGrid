@@ -33,6 +33,9 @@ const CanvasEditor = (() => {
   // Active tool: 'crop' or 'blur'
   let activeTool = 'crop';
 
+  // Locked aspect ratio (null = free, number = w/h ratio)
+  let lockedRatio = null;
+
   // Blur drawing state
   let blurDraw = null;  // { x, y, w, h } while drawing a blur rect
 
@@ -650,14 +653,28 @@ const CanvasEditor = (() => {
     }
 
     if (dragMode === 'draw') {
-      const x = Math.min(dragStart.x, ix);
-      const y = Math.min(dragStart.y, iy);
-      const w = Math.abs(ix - dragStart.x);
-      const h = Math.abs(iy - dragStart.y);
+      let w = Math.abs(ix - dragStart.x);
+      let h = Math.abs(iy - dragStart.y);
+
+      // Enforce aspect ratio if locked
+      if (lockedRatio && lockedRatio > 0) {
+        // Use the larger dimension to drive the constrained one
+        const hFromW = Math.round(w / lockedRatio);
+        const wFromH = Math.round(h * lockedRatio);
+        if (hFromW <= imgH) {
+          h = hFromW;
+        } else {
+          w = wFromH;
+        }
+      }
+
+      // Calculate origin (top-left corner) based on drag direction
+      const x = ix >= dragStart.x ? dragStart.x : dragStart.x - w;
+      const y = iy >= dragStart.y ? dragStart.y : dragStart.y - h;
 
       crop = {
-        x: clamp(x, 0, imgW),
-        y: clamp(y, 0, imgH),
+        x: clamp(x, 0, imgW - 1),
+        y: clamp(y, 0, imgH - 1),
         w: clamp(w, 0, imgW - clamp(x, 0, imgW)),
         h: clamp(h, 0, imgH - clamp(y, 0, imgH)),
       };
@@ -763,6 +780,44 @@ const CanvasEditor = (() => {
         break;
     }
 
+    // Enforce aspect ratio on resize
+    if (lockedRatio && lockedRatio > 0) {
+      // Determine which dimension to adjust based on handle direction
+      const isHorizontal = mode === 'resize-l' || mode === 'resize-r';
+      const isVertical = mode === 'resize-t' || mode === 'resize-b';
+
+      if (isHorizontal) {
+        // Width changed, adjust height
+        h = Math.round(w / lockedRatio);
+      } else if (isVertical) {
+        // Height changed, adjust width
+        w = Math.round(h * lockedRatio);
+      } else {
+        // Corner: use width to drive height
+        h = Math.round(w / lockedRatio);
+      }
+
+      // Recalc origin for handles that move the top-left corner
+      if (mode === 'resize-tl' || mode === 'resize-t') {
+        y = c.y + c.h - h;
+      }
+      if (mode === 'resize-tl' || mode === 'resize-l') {
+        x = c.x + c.w - w;
+      }
+      if (mode === 'resize-bl') {
+        x = c.x + c.w - w;
+      }
+      if (mode === 'resize-tr') {
+        y = c.y + c.h - h;
+      }
+
+      // Clamp to image bounds
+      w = clamp(w, 1, imgW);
+      h = clamp(h, 1, imgH);
+      x = clamp(x, 0, imgW - w);
+      y = clamp(y, 0, imgH - h);
+    }
+
     crop = { x, y, w, h };
   }
 
@@ -858,6 +913,10 @@ const CanvasEditor = (() => {
     crop = c ? { ...c } : null;
   }
 
+  function setLockedRatio(ratio) {
+    lockedRatio = ratio;
+  }
+
   function clearCrop() {
     crop = null;
   }
@@ -939,6 +998,7 @@ const CanvasEditor = (() => {
     drawOverlay,
     setCrop,
     clearCrop,
+    setLockedRatio,
     resetZoom,
     setTool,
     applyBlurRegion,

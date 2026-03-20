@@ -203,6 +203,32 @@ body {
   letter-spacing: 0.02em;
 }
 
+.size-input__lock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+  padding: 0;
+}
+
+.size-input__lock:hover {
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}
+
+.size-input__lock--active {
+  color: var(--accent);
+  border-color: var(--accent-muted);
+  background: var(--bg-raised);
+}
+
 /* --- Tool Switcher --- */
 .tool-switcher {
   display: flex;

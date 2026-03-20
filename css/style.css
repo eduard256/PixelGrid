@@ -282,6 +282,27 @@ body {
   border-radius: 20px;
   min-width: 22px;
   text-align: center;
+  margin-right: auto;
+  margin-left: 6px;
+}
+
+.sidebar__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+
+.sidebar__clear:hover {
+  color: var(--danger);
+  background: rgba(212, 122, 122, 0.1);
 }
 
 .sidebar__gallery {
@@ -356,6 +377,34 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.thumb__remove {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: rgba(0,0,0,0.55);
+  color: rgba(255,255,255,0.6);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all var(--duration) var(--ease);
+  padding: 0;
+}
+
+.thumb:hover .thumb__remove {
+  opacity: 1;
+}
+
+.thumb__remove:hover {
+  background: var(--danger);
+  color: #fff;
 }
 
 .sidebar__add {

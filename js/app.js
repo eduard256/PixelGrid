@@ -39,6 +39,7 @@ const App = (() => {
       gallery:       document.getElementById('gallery'),
       imageCount:    document.getElementById('imageCount'),
       addMoreBtn:    document.getElementById('addMoreBtn'),
+      clearAllBtn:   document.getElementById('clearAllBtn'),
       sidebar:       document.getElementById('sidebar'),
       panel:         document.getElementById('panel'),
       editor:        document.getElementById('editor'),
@@ -103,6 +104,7 @@ const App = (() => {
     dom.fileInput.addEventListener('change', handleFileSelect);
     dom.fileInputMore.addEventListener('change', handleFileSelect);
     dom.addMoreBtn.addEventListener('click', () => dom.fileInputMore.click());
+    dom.clearAllBtn.addEventListener('click', clearAllImages);
 
     // Drag & drop
     dom.editor.addEventListener('dragover', onDragOver);
@@ -236,9 +238,35 @@ const App = (() => {
       nameSpan.className = 'thumb__name';
       nameSpan.textContent = entry.name;
 
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'thumb__remove';
+      removeBtn.title = 'Remove image';
+      const removeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      removeSvg.setAttribute('viewBox', '0 0 12 12');
+      removeSvg.setAttribute('width', '10');
+      removeSvg.setAttribute('height', '10');
+      const removeLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      removeLine1.setAttribute('x1', '2'); removeLine1.setAttribute('y1', '2');
+      removeLine1.setAttribute('x2', '10'); removeLine1.setAttribute('y2', '10');
+      removeLine1.setAttribute('stroke', 'currentColor'); removeLine1.setAttribute('stroke-width', '1.5');
+      removeLine1.setAttribute('stroke-linecap', 'round');
+      const removeLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      removeLine2.setAttribute('x1', '10'); removeLine2.setAttribute('y1', '2');
+      removeLine2.setAttribute('x2', '2'); removeLine2.setAttribute('y2', '10');
+      removeLine2.setAttribute('stroke', 'currentColor'); removeLine2.setAttribute('stroke-width', '1.5');
+      removeLine2.setAttribute('stroke-linecap', 'round');
+      removeSvg.appendChild(removeLine1);
+      removeSvg.appendChild(removeLine2);
+      removeBtn.appendChild(removeSvg);
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeImage(idx);
+      });
+
       div.appendChild(img);
       div.appendChild(statusSpan);
       div.appendChild(nameSpan);
+      div.appendChild(removeBtn);
 
       div.addEventListener('click', () => selectImage(idx));
       dom.gallery.appendChild(div);
@@ -254,6 +282,54 @@ const App = (() => {
     renderGallery();
     loadImageToCanvas();
     updatePanel();
+  }
+
+  function removeImage(idx) {
+    if (idx < 0 || idx >= state.images.length) return;
+
+    // Revoke blob URL to free memory
+    URL.revokeObjectURL(state.images[idx].url);
+    state.images.splice(idx, 1);
+
+    if (state.images.length === 0) {
+      state.activeIndex = -1;
+      renderGallery();
+      hideWorkspace();
+      return;
+    }
+
+    // Adjust active index
+    if (state.activeIndex >= state.images.length) {
+      state.activeIndex = state.images.length - 1;
+    } else if (state.activeIndex > idx) {
+      state.activeIndex--;
+    } else if (state.activeIndex === idx) {
+      // Select same index (next image) or previous if was last
+      state.activeIndex = Math.min(idx, state.images.length - 1);
+    }
+
+    renderGallery();
+    loadImageToCanvas();
+    updatePanel();
+  }
+
+  function clearAllImages() {
+    if (state.images.length === 0) return;
+
+    // Revoke all blob URLs
+    state.images.forEach(entry => URL.revokeObjectURL(entry.url));
+    state.images.length = 0;
+    state.activeIndex = -1;
+
+    renderGallery();
+    hideWorkspace();
+  }
+
+  function hideWorkspace() {
+    dom.dropzone.style.display = 'flex';
+    dom.workspace.style.display = 'none';
+    dom.panel.style.display = 'none';
+    CanvasEditor.clearCrop();
   }
 
   // ----------------------------------------------------------

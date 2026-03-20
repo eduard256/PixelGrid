@@ -1,6 +1,7 @@
 /* ============================================================
    PixelGrid -- Canvas Editor
-   Handles image rendering, grid overlay, and crop tool
+   Handles image rendering, grid overlay, crop tool,
+   pinch-to-zoom and pan (trackpad / mouse wheel / touch)
    ============================================================ */
 
 'use strict';
@@ -15,18 +16,50 @@ const CanvasEditor = (() => {
   let canvasWrap;
 
   let currentEntry = null;
-  let displayScale = 1;   // ratio: displayed pixels / original pixels
-  let canvasW = 0;
-  let canvasH = 0;
+
+  // Display geometry
+  let baseScale  = 1;     // scale to fit image into editor viewport
+  let zoomLevel  = 1;     // user zoom multiplier (1 = fit, >1 = zoomed in)
+  let panX       = 0;     // pan offset in screen pixels
+  let panY       = 0;
+  let canvasW    = 0;     // current canvas pixel size (changes with zoom)
+  let canvasH    = 0;
+  let editorW    = 0;     // cached editor container size
+  let editorH    = 0;
+
+  const MIN_ZOOM = 0.2;
+  const MAX_ZOOM = 10;
 
   // Crop state (in original image coordinates)
-  let crop = null;          // { x, y, w, h }
+  let crop = null;
   let isDragging = false;
-  let dragMode = 'none';   // 'draw' | 'move' | 'resize-tl' | 'resize-tr' | 'resize-bl' | 'resize-br' | 'resize-t' | 'resize-b' | 'resize-l' | 'resize-r'
+  let dragMode = 'none';  // 'draw' | 'move' | 'resize-*' | 'pan'
   let dragStart = { x: 0, y: 0 };
+  let dragStartScreen = { x: 0, y: 0 };
   let cropStart = null;
+  let panStart = { x: 0, y: 0 };
 
-  const HANDLE_SIZE = 7;   // px in screen space
+  const HANDLE_SIZE = 7;
+
+  // Touch state for pinch-to-zoom
+  let lastTouchDist = 0;
+  let lastTouchCenter = { x: 0, y: 0 };
+  let touchStartPan = { x: 0, y: 0 };
+
+  // ----------------------------------------------------------
+  // Computed helpers
+  // ----------------------------------------------------------
+
+  // Effective scale: base fit * user zoom
+  function effectiveScale() {
+    return baseScale * zoomLevel;
+  }
+
+  // Combined displayScale used everywhere for coordinate conversion
+  // (kept as a getter for backward compat with overlay drawing code)
+  function getDisplayScale() {
+    return effectiveScale();
+  }
 
   // ----------------------------------------------------------
   // Init & Load
@@ -44,23 +77,36 @@ const CanvasEditor = (() => {
       bindCanvasEvents();
     }
 
-    fitToContainer();
-    drawMain();
-    drawOverlay();
-    updateZoomInfo();
+    // Reset zoom/pan when loading a new image
+    zoomLevel = 1;
+    panX = 0;
+    panY = 0;
+
+    cacheEditorSize();
+    applyZoom();
   }
 
-  function fitToContainer() {
+  function cacheEditorSize() {
     const editor = document.getElementById('editor');
-    const maxW = editor.clientWidth - 40;
-    const maxH = editor.clientHeight - 60;
+    editorW = editor.clientWidth - 40;
+    editorH = editor.clientHeight - 60;
+  }
+
+  // Recalculate canvas size based on zoom, redraw everything
+  function applyZoom() {
+    if (!currentEntry) return;
 
     const imgW = currentEntry.img.naturalWidth;
     const imgH = currentEntry.img.naturalHeight;
 
-    displayScale = Math.min(maxW / imgW, maxH / imgH, 1);
-    canvasW = Math.round(imgW * displayScale);
-    canvasH = Math.round(imgH * displayScale);
+    baseScale = Math.min(editorW / imgW, editorH / imgH, 1);
+    const es = effectiveScale();
+
+    canvasW = Math.round(imgW * es);
+    canvasH = Math.round(imgH * es);
+
+    // Clamp pan so image doesn't fly off entirely
+    clampPan();
 
     mainCanvas.width = canvasW;
     mainCanvas.height = canvasH;
@@ -69,6 +115,30 @@ const CanvasEditor = (() => {
 
     canvasWrap.style.width = canvasW + 'px';
     canvasWrap.style.height = canvasH + 'px';
+    canvasWrap.style.transform = 'translate(' + panX + 'px, ' + panY + 'px)';
+
+    drawMain();
+    drawOverlay();
+    updateZoomInfo();
+  }
+
+  function clampPan() {
+    // Allow panning so at least 50px of image stays visible
+    const minVisible = 50;
+    const maxPanX = editorW - minVisible;
+    const maxPanY = editorH - minVisible;
+    const minPanX = -(canvasW - minVisible);
+    const minPanY = -(canvasH - minVisible);
+
+    // Only constrain when zoomed beyond viewport
+    if (canvasW > editorW + 40 || canvasH > editorH + 60) {
+      panX = clamp(panX, minPanX, maxPanX);
+      panY = clamp(panY, minPanY, maxPanY);
+    } else {
+      // When image fits, center it (no pan)
+      panX = 0;
+      panY = 0;
+    }
   }
 
   function drawMain() {
@@ -77,9 +147,43 @@ const CanvasEditor = (() => {
   }
 
   function updateZoomInfo() {
-    const pct = Math.round(displayScale * 100);
+    const pct = Math.round(effectiveScale() * 100);
     const el = document.getElementById('infoZoom');
     if (el) el.textContent = pct + '%';
+  }
+
+  // ----------------------------------------------------------
+  // Zoom logic
+  // ----------------------------------------------------------
+
+  // Zoom centered on a screen point (relative to canvas wrapper parent)
+  function zoomAt(screenX, screenY, delta) {
+    const oldZoom = zoomLevel;
+    const factor = delta > 0 ? 0.92 : 1.08; // scroll down = zoom out, up = zoom in
+    let newZoom = zoomLevel * factor;
+    newZoom = clamp(newZoom, MIN_ZOOM, MAX_ZOOM);
+
+    if (newZoom === oldZoom) return;
+
+    // Zoom towards the cursor: adjust pan so the point under cursor stays put
+    const ratio = newZoom / oldZoom;
+
+    // screenX/Y relative to editor container
+    const anchorX = screenX - panX;
+    const anchorY = screenY - panY;
+
+    panX = screenX - anchorX * ratio;
+    panY = screenY - anchorY * ratio;
+
+    zoomLevel = newZoom;
+    applyZoom();
+  }
+
+  function resetZoom() {
+    zoomLevel = 1;
+    panX = 0;
+    panY = 0;
+    applyZoom();
   }
 
   // ----------------------------------------------------------
@@ -87,22 +191,17 @@ const CanvasEditor = (() => {
   // ----------------------------------------------------------
   function drawOverlay() {
     if (!overlayCtx) return;
+    const ds = getDisplayScale();
     overlayCtx.clearRect(0, 0, canvasW, canvasH);
 
     const flags = App.state.gridFlags;
 
-    // Rule of thirds
     if (flags.thirds) drawThirds();
-    // Center rectangle
     if (flags.centerRect) drawCenterRect();
-    // Diagonals
     if (flags.diagonals) drawDiagonals();
-    // Center point
     if (flags.center) drawCenterPoint();
-    // Crop selection
-    if (crop && crop.w > 0 && crop.h > 0) drawCropOverlay();
-    // Pad visualization
-    drawPadOverlay();
+    if (crop && crop.w > 0 && crop.h > 0) drawCropOverlay(ds);
+    drawPadOverlay(ds);
   }
 
   function drawThirds() {
@@ -114,9 +213,7 @@ const CanvasEditor = (() => {
     const thirdH = canvasH / 3;
 
     for (let i = 1; i <= 2; i++) {
-      // Vertical
       drawLine(Math.round(thirdW * i), 0, Math.round(thirdW * i), canvasH);
-      // Horizontal
       drawLine(0, Math.round(thirdH * i), canvasW, Math.round(thirdH * i));
     }
   }
@@ -130,10 +227,8 @@ const CanvasEditor = (() => {
     const thirdH = canvasH / 3;
 
     overlayCtx.strokeRect(
-      Math.round(thirdW),
-      Math.round(thirdH),
-      Math.round(thirdW),
-      Math.round(thirdH)
+      Math.round(thirdW), Math.round(thirdH),
+      Math.round(thirdW), Math.round(thirdH)
     );
     overlayCtx.setLineDash([]);
   }
@@ -156,11 +251,9 @@ const CanvasEditor = (() => {
     overlayCtx.lineWidth = 1;
     overlayCtx.setLineDash([]);
 
-    // Crosshair
     drawLine(cx - arm, cy, cx + arm, cy);
     drawLine(cx, cy - arm, cx, cy + arm);
 
-    // Small circle
     overlayCtx.beginPath();
     overlayCtx.arc(cx, cy, 4, 0, Math.PI * 2);
     overlayCtx.stroke();
@@ -169,23 +262,19 @@ const CanvasEditor = (() => {
   // ----------------------------------------------------------
   // Crop Overlay
   // ----------------------------------------------------------
-  function drawCropOverlay() {
+  function drawCropOverlay(ds) {
     if (!crop) return;
 
-    const sx = crop.x * displayScale;
-    const sy = crop.y * displayScale;
-    const sw = crop.w * displayScale;
-    const sh = crop.h * displayScale;
+    const sx = crop.x * ds;
+    const sy = crop.y * ds;
+    const sw = crop.w * ds;
+    const sh = crop.h * ds;
 
     // Dim outside area
     overlayCtx.fillStyle = 'rgba(17, 17, 24, 0.55)';
-    // Top
     overlayCtx.fillRect(0, 0, canvasW, sy);
-    // Bottom
     overlayCtx.fillRect(0, sy + sh, canvasW, canvasH - sy - sh);
-    // Left
     overlayCtx.fillRect(0, sy, sx, sh);
-    // Right
     overlayCtx.fillRect(sx + sw, sy, canvasW - sx - sw, sh);
 
     // Crop border
@@ -194,7 +283,6 @@ const CanvasEditor = (() => {
     overlayCtx.setLineDash([]);
     overlayCtx.strokeRect(sx, sy, sw, sh);
 
-    // Handles
     drawHandles(sx, sy, sw, sh);
 
     // Size label
@@ -213,14 +301,14 @@ const CanvasEditor = (() => {
     overlayCtx.lineWidth = 1;
 
     const positions = [
-      [sx - hs/2, sy - hs/2],                 // top-left
-      [sx + sw - hs/2, sy - hs/2],             // top-right
-      [sx - hs/2, sy + sh - hs/2],             // bottom-left
-      [sx + sw - hs/2, sy + sh - hs/2],        // bottom-right
-      [sx + sw/2 - hs/2, sy - hs/2],           // top-center
-      [sx + sw/2 - hs/2, sy + sh - hs/2],      // bottom-center
-      [sx - hs/2, sy + sh/2 - hs/2],           // left-center
-      [sx + sw - hs/2, sy + sh/2 - hs/2],      // right-center
+      [sx - hs/2, sy - hs/2],
+      [sx + sw - hs/2, sy - hs/2],
+      [sx - hs/2, sy + sh - hs/2],
+      [sx + sw - hs/2, sy + sh - hs/2],
+      [sx + sw/2 - hs/2, sy - hs/2],
+      [sx + sw/2 - hs/2, sy + sh - hs/2],
+      [sx - hs/2, sy + sh/2 - hs/2],
+      [sx + sw - hs/2, sy + sh/2 - hs/2],
     ];
 
     positions.forEach(([px, py]) => {
@@ -230,28 +318,26 @@ const CanvasEditor = (() => {
   }
 
   // ----------------------------------------------------------
-  // Pad Overlay (shows extended area from original)
+  // Pad Overlay
   // ----------------------------------------------------------
-  function drawPadOverlay() {
+  function drawPadOverlay(ds) {
     const entry = App.getActiveEntry();
     if (!entry?.crop || !entry.pad) return;
     const pad = entry.pad;
     if (pad.sides === 0 && pad.top === 0 && pad.bottom === 0) return;
 
     const c = entry.crop;
-    const sx = (c.x - pad.sides) * displayScale;
-    const sy = (c.y - pad.top) * displayScale;
-    const sw = (c.w + pad.sides * 2) * displayScale;
-    const sh = (c.h + pad.top + pad.bottom) * displayScale;
+    const sx = (c.x - pad.sides) * ds;
+    const sy = (c.y - pad.top) * ds;
+    const sw = (c.w + pad.sides * 2) * ds;
+    const sh = (c.h + pad.top + pad.bottom) * ds;
 
-    // Outer pad border (dashed)
     overlayCtx.strokeStyle = 'rgba(169, 212, 184, 0.5)';
     overlayCtx.lineWidth = 1;
     overlayCtx.setLineDash([5, 4]);
     overlayCtx.strokeRect(sx, sy, sw, sh);
     overlayCtx.setLineDash([]);
 
-    // Size label for pad area
     overlayCtx.fillStyle = 'rgba(169, 212, 184, 0.7)';
     overlayCtx.font = '10px "JetBrains Mono", monospace';
     overlayCtx.textAlign = 'center';
@@ -261,31 +347,192 @@ const CanvasEditor = (() => {
   }
 
   // ----------------------------------------------------------
-  // Canvas Events (crop tool)
+  // Canvas Events
   // ----------------------------------------------------------
   function bindCanvasEvents() {
     overlayCanvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     overlayCanvas.addEventListener('mousemove', onHoverCursor);
+
+    // Wheel: zoom (pinch-to-zoom on trackpad sends wheel events with ctrlKey)
+    // Regular scroll on trackpad (two-finger swipe) sends wheel without ctrlKey -> pan
+    overlayCanvas.addEventListener('wheel', onWheel, { passive: false });
+
+    // Touch events for mobile / tablet pinch-to-zoom
+    overlayCanvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    overlayCanvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    overlayCanvas.addEventListener('touchend', onTouchEnd);
+
+    // Double-click to reset zoom
+    overlayCanvas.addEventListener('dblclick', onDoubleClick);
   }
 
+  // ----------------------------------------------------------
+  // Wheel event (trackpad pinch-to-zoom & two-finger scroll)
+  // ----------------------------------------------------------
+  function onWheel(e) {
+    e.preventDefault();
+
+    const rect = canvasWrap.parentElement.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (e.ctrlKey || e.metaKey) {
+      // Pinch-to-zoom on trackpad (or Ctrl+scroll with mouse)
+      // e.deltaY is inverted for zoom: negative = zoom in
+      zoomAt(mx, my, e.deltaY);
+    } else {
+      // Two-finger scroll = pan
+      panX -= e.deltaX;
+      panY -= e.deltaY;
+      clampPan();
+      canvasWrap.style.transform = 'translate(' + panX + 'px, ' + panY + 'px)';
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Touch events (mobile pinch-to-zoom + drag-to-pan)
+  // ----------------------------------------------------------
+  function getTouchDist(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function getTouchCenter(t1, t2) {
+    return {
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2,
+    };
+  }
+
+  function onTouchStart(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      lastTouchDist = getTouchDist(e.touches[0], e.touches[1]);
+      lastTouchCenter = getTouchCenter(e.touches[0], e.touches[1]);
+      touchStartPan = { x: panX, y: panY };
+    }
+  }
+
+  function onTouchMove(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+
+      const dist = getTouchDist(e.touches[0], e.touches[1]);
+      const center = getTouchCenter(e.touches[0], e.touches[1]);
+      const rect = canvasWrap.parentElement.getBoundingClientRect();
+
+      // Zoom
+      if (lastTouchDist > 0) {
+        const scale = dist / lastTouchDist;
+        const oldZoom = zoomLevel;
+        let newZoom = zoomLevel * scale;
+        newZoom = clamp(newZoom, MIN_ZOOM, MAX_ZOOM);
+
+        if (newZoom !== oldZoom) {
+          const ratio = newZoom / oldZoom;
+          const cx = center.x - rect.left;
+          const cy = center.y - rect.top;
+
+          const anchorX = cx - panX;
+          const anchorY = cy - panY;
+
+          panX = cx - anchorX * ratio;
+          panY = cy - anchorY * ratio;
+
+          zoomLevel = newZoom;
+        }
+      }
+
+      // Pan
+      const dx = center.x - lastTouchCenter.x;
+      const dy = center.y - lastTouchCenter.y;
+      panX += dx;
+      panY += dy;
+
+      lastTouchDist = dist;
+      lastTouchCenter = center;
+
+      applyZoom();
+    }
+  }
+
+  function onTouchEnd(e) {
+    if (e.touches.length < 2) {
+      lastTouchDist = 0;
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Double-click to reset zoom
+  // ----------------------------------------------------------
+  function onDoubleClick(e) {
+    if (zoomLevel !== 1) {
+      resetZoom();
+    } else {
+      // Zoom to 2x centered on click
+      const rect = canvasWrap.parentElement.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      // Simulate a zoom-in
+      const oldZoom = zoomLevel;
+      const newZoom = 2;
+      const ratio = newZoom / oldZoom;
+      const anchorX = mx - panX;
+      const anchorY = my - panY;
+      panX = mx - anchorX * ratio;
+      panY = my - anchorY * ratio;
+      zoomLevel = newZoom;
+      applyZoom();
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Mouse coordinate conversion (accounts for zoom + pan)
+  // ----------------------------------------------------------
   function screenToImage(e) {
     const rect = overlayCanvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
+    const ds = getDisplayScale();
     return {
       sx, sy,
-      ix: Math.round(sx / displayScale),
-      iy: Math.round(sy / displayScale),
+      ix: Math.round(sx / ds),
+      iy: Math.round(sy / ds),
     };
   }
 
+  // ----------------------------------------------------------
+  // Mouse crop interaction
+  // ----------------------------------------------------------
   function onMouseDown(e) {
+    // Middle mouse button or Space+click = pan
+    if (e.button === 1) {
+      e.preventDefault();
+      dragMode = 'pan';
+      isDragging = true;
+      dragStartScreen = { x: e.clientX, y: e.clientY };
+      panStart = { x: panX, y: panY };
+      overlayCanvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    // Alt+click = pan (alternative for trackpads without middle button)
+    if (e.altKey) {
+      e.preventDefault();
+      dragMode = 'pan';
+      isDragging = true;
+      dragStartScreen = { x: e.clientX, y: e.clientY };
+      panStart = { x: panX, y: panY };
+      overlayCanvas.style.cursor = 'grabbing';
+      return;
+    }
+
     const { sx, sy, ix, iy } = screenToImage(e);
 
     if (crop && crop.w > 0 && crop.h > 0) {
-      // Check handles first
       const handle = hitTestHandle(sx, sy);
       if (handle) {
         dragMode = handle;
@@ -295,11 +542,11 @@ const CanvasEditor = (() => {
         return;
       }
 
-      // Check if inside crop (move)
-      const csx = crop.x * displayScale;
-      const csy = crop.y * displayScale;
-      const csw = crop.w * displayScale;
-      const csh = crop.h * displayScale;
+      const ds = getDisplayScale();
+      const csx = crop.x * ds;
+      const csy = crop.y * ds;
+      const csw = crop.w * ds;
+      const csh = crop.h * ds;
 
       if (sx >= csx && sx <= csx + csw && sy >= csy && sy <= csy + csh) {
         dragMode = 'move';
@@ -319,6 +566,14 @@ const CanvasEditor = (() => {
 
   function onMouseMove(e) {
     if (!isDragging) return;
+
+    if (dragMode === 'pan') {
+      panX = panStart.x + (e.clientX - dragStartScreen.x);
+      panY = panStart.y + (e.clientY - dragStartScreen.y);
+      clampPan();
+      canvasWrap.style.transform = 'translate(' + panX + 'px, ' + panY + 'px)';
+      return;
+    }
 
     const { ix, iy } = screenToImage(e);
     const imgW = currentEntry.img.naturalWidth;
@@ -344,7 +599,6 @@ const CanvasEditor = (() => {
       crop.w = cropStart.w;
       crop.h = cropStart.h;
     } else {
-      // Resize handles
       resizeCrop(dragMode, ix, iy, imgW, imgH);
     }
 
@@ -352,8 +606,16 @@ const CanvasEditor = (() => {
     drawOverlay();
   }
 
-  function onMouseUp() {
+  function onMouseUp(e) {
     if (!isDragging) return;
+
+    if (dragMode === 'pan') {
+      isDragging = false;
+      dragMode = 'none';
+      overlayCanvas.style.cursor = 'crosshair';
+      return;
+    }
+
     isDragging = false;
 
     if (crop && crop.w > 2 && crop.h > 2) {
@@ -422,11 +684,12 @@ const CanvasEditor = (() => {
   function hitTestHandle(sx, sy) {
     if (!crop) return null;
 
-    const cx = crop.x * displayScale;
-    const cy = crop.y * displayScale;
-    const cw = crop.w * displayScale;
-    const ch = crop.h * displayScale;
-    const hs = HANDLE_SIZE + 4; // slightly larger hit area
+    const ds = getDisplayScale();
+    const cx = crop.x * ds;
+    const cy = crop.y * ds;
+    const cw = crop.w * ds;
+    const ch = crop.h * ds;
+    const hs = HANDLE_SIZE + 4;
 
     const handles = [
       { mode: 'resize-tl', x: cx, y: cy },
@@ -453,7 +716,13 @@ const CanvasEditor = (() => {
   function onHoverCursor(e) {
     if (isDragging) return;
 
+    if (e.altKey) {
+      overlayCanvas.style.cursor = 'grab';
+      return;
+    }
+
     const { sx, sy } = screenToImage(e);
+    const ds = getDisplayScale();
 
     if (crop && crop.w > 0 && crop.h > 0) {
       const handle = hitTestHandle(sx, sy);
@@ -468,11 +737,10 @@ const CanvasEditor = (() => {
         return;
       }
 
-      // Inside crop?
-      const csx = crop.x * displayScale;
-      const csy = crop.y * displayScale;
-      const csw = crop.w * displayScale;
-      const csh = crop.h * displayScale;
+      const csx = crop.x * ds;
+      const csy = crop.y * ds;
+      const csw = crop.w * ds;
+      const csh = crop.h * ds;
 
       if (sx >= csx && sx <= csx + csw && sy >= csy && sy <= csy + csh) {
         overlayCanvas.style.cursor = 'move';
@@ -528,8 +796,9 @@ const CanvasEditor = (() => {
     drawOverlay,
     setCrop,
     clearCrop,
+    resetZoom,
     get crop() { return crop; },
-    get displayScale() { return displayScale; },
+    get displayScale() { return getDisplayScale(); },
   };
 
 })();

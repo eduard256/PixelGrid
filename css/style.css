@@ -551,6 +551,37 @@ body {
   margin-bottom: 12px;
 }
 
+.dropzone__url {
+  margin: 14px 0 8px;
+  position: relative;
+  z-index: 5;
+}
+
+.dropzone__url-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.input--url {
+  flex: 1;
+  font-size: 0.82rem;
+  padding: 8px 12px;
+  min-width: 0;
+}
+
+.btn--url {
+  padding: 8px 16px;
+  flex-shrink: 0;
+}
+
+.dropzone__url-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+  margin-top: 4px;
+  min-height: 1.1em;
+}
+
 .dropzone__hint {
   font-size: 0.75rem;
   color: var(--text-muted);

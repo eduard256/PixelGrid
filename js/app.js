@@ -41,6 +41,9 @@ const App = (() => {
       imageCount:    document.getElementById('imageCount'),
       addMoreBtn:    document.getElementById('addMoreBtn'),
       clearAllBtn:   document.getElementById('clearAllBtn'),
+      urlInput:      document.getElementById('urlInput'),
+      urlLoadBtn:    document.getElementById('urlLoadBtn'),
+      urlError:      document.getElementById('urlError'),
       sidebar:       document.getElementById('sidebar'),
       panel:         document.getElementById('panel'),
       editor:        document.getElementById('editor'),
@@ -109,11 +112,24 @@ const App = (() => {
   // ----------------------------------------------------------
   function bindEvents() {
     // File input & drop
-    dom.dropzone.addEventListener('click', () => dom.fileInput.click());
+    dom.dropzone.addEventListener('click', (e) => {
+      // Don't open file picker when clicking on URL input area
+      if (e.target.closest('.dropzone__url')) return;
+      dom.fileInput.click();
+    });
     dom.fileInput.addEventListener('change', handleFileSelect);
     dom.fileInputMore.addEventListener('change', handleFileSelect);
     dom.addMoreBtn.addEventListener('click', () => dom.fileInputMore.click());
     dom.clearAllBtn.addEventListener('click', clearAllImages);
+
+    // URL loading
+    dom.urlLoadBtn.addEventListener('click', loadFromUrl);
+    dom.urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') loadFromUrl();
+    });
+    // Prevent URL input clicks from bubbling to dropzone file input
+    dom.urlInput.addEventListener('click', (e) => e.stopPropagation());
+    dom.urlLoadBtn.addEventListener('click', (e) => e.stopPropagation());
 
     // Drag & drop
     dom.editor.addEventListener('dragover', onDragOver);
@@ -190,6 +206,74 @@ const App = (() => {
     const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
     if (files.length) addImages(files);
     e.target.value = '';
+  }
+
+  function loadFromUrl() {
+    const url = (dom.urlInput.value || '').trim();
+    dom.urlError.textContent = '';
+
+    if (!url) {
+      dom.urlError.textContent = 'Please enter a URL';
+      return;
+    }
+
+    // Basic URL validation
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (_) {
+      dom.urlError.textContent = 'Invalid URL format';
+      return;
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      dom.urlError.textContent = 'Only http/https URLs are supported';
+      return;
+    }
+
+    dom.urlLoadBtn.textContent = 'Loading...';
+    dom.urlLoadBtn.disabled = true;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      // Extract filename from URL
+      const pathParts = parsed.pathname.split('/');
+      let name = pathParts[pathParts.length - 1] || 'image';
+      if (!/\.\w+$/.test(name)) name += '.png';
+
+      const entry = {
+        id: Date.now() + '_url',
+        name: name,
+        file: null,
+        img: img,
+        url: url,
+        status: 'pending',
+        crop: null,
+        pad: { sides: 0, top: 0, bottom: 0 },
+        blurRegions: [],
+      };
+
+      state.images.push(entry);
+      dom.urlInput.value = '';
+      dom.urlLoadBtn.textContent = 'Load';
+      dom.urlLoadBtn.disabled = false;
+
+      renderGallery();
+      if (state.images.length === 1) {
+        selectImage(0);
+      }
+      showWorkspace();
+    };
+
+    img.onerror = () => {
+      dom.urlError.textContent = 'Failed to load image (CORS blocked or invalid URL)';
+      dom.urlLoadBtn.textContent = 'Load';
+      dom.urlLoadBtn.disabled = false;
+    };
+
+    img.src = url;
   }
 
   function addImages(files) {

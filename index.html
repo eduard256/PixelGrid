@@ -150,6 +150,13 @@
             </div>
             <h2 class="dropzone__title">Drop your screenshots here</h2>
             <p class="dropzone__subtitle">or click to browse files</p>
+            <div class="dropzone__url">
+              <div class="dropzone__url-row">
+                <input type="text" id="urlInput" class="input input--url" placeholder="or paste image URL here...">
+                <button class="btn btn--primary btn--url" id="urlLoadBtn">Load</button>
+              </div>
+              <p class="dropzone__url-error" id="urlError"></p>
+            </div>
             <p class="dropzone__hint">Supports PNG, JPG, WebP -- multiple files allowed</p>
           </div>
           <input type="file" id="fileInput" class="dropzone__input" multiple accept="image/png,image/jpeg,image/webp">

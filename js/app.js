@@ -22,6 +22,7 @@ const App = (() => {
       centerRect: false,
     },
     previewMode: 'result', // 'original' | 'result'
+    activeTool: 'crop',    // 'crop' | 'blur'
   };
 
   // ----------------------------------------------------------
@@ -81,6 +82,14 @@ const App = (() => {
       exportBtn:     document.getElementById('exportBtn'),
       exportAllBtn:  document.getElementById('exportAllBtn'),
 
+      toolCrop:       document.getElementById('toolCrop'),
+      toolBlur:       document.getElementById('toolBlur'),
+      blurIntensity:  document.getElementById('blurIntensity'),
+      blurList:       document.getElementById('blurList'),
+      blurMessage:    document.getElementById('blurMessage'),
+      undoBlurBtn:    document.getElementById('undoBlurBtn'),
+      clearBlurBtn:   document.getElementById('clearBlurBtn'),
+
       gridToggles: document.querySelectorAll('[data-grid]'),
     };
   }
@@ -120,11 +129,19 @@ const App = (() => {
       btn.addEventListener('click', () => toggleGrid(btn.dataset.grid));
     });
 
+    // Tool switcher
+    dom.toolCrop.addEventListener('click', () => setActiveTool('crop'));
+    dom.toolBlur.addEventListener('click', () => setActiveTool('blur'));
+
     // Crop fields
     ['cropX', 'cropY', 'cropW', 'cropH'].forEach(id => {
       dom[id].addEventListener('input', onCropFieldChange);
     });
     dom.resetCropBtn.addEventListener('click', resetCrop);
+
+    // Blur controls
+    dom.undoBlurBtn.addEventListener('click', undoBlur);
+    dom.clearBlurBtn.addEventListener('click', clearBlur);
 
     // Pad fields
     dom.padSides.addEventListener('input', onPadChange);
@@ -193,6 +210,7 @@ const App = (() => {
           status: 'pending',
           crop: null,
           pad: { sides: 0, top: 0, bottom: 0 },
+          blurRegions: [],   // [{ x, y, w, h, intensity }]
         };
         state.images.push(entry);
         loaded++;
@@ -469,6 +487,7 @@ const App = (() => {
     dom.padBottom.value = entry.pad?.bottom || 0;
 
     updatePadUI();
+    renderBlurList();
     updatePreview();
   }
 
@@ -587,6 +606,74 @@ const App = (() => {
   }
 
   // ----------------------------------------------------------
+  // Tool Switcher
+  // ----------------------------------------------------------
+  function setActiveTool(tool) {
+    state.activeTool = tool;
+    dom.toolCrop.classList.toggle('tool-btn--active', tool === 'crop');
+    dom.toolBlur.classList.toggle('tool-btn--active', tool === 'blur');
+    CanvasEditor.setTool(tool);
+  }
+
+  // ----------------------------------------------------------
+  // Blur
+  // ----------------------------------------------------------
+  function addBlurRegion(region) {
+    const entry = getActiveEntry();
+    if (!entry) return;
+    entry.blurRegions.push(region);
+    renderBlurList();
+    // Apply blur to main canvas immediately
+    CanvasEditor.applyBlurRegion(region);
+    updatePreview();
+  }
+
+  function undoBlur() {
+    const entry = getActiveEntry();
+    if (!entry || entry.blurRegions.length === 0) return;
+    entry.blurRegions.pop();
+    renderBlurList();
+    // Redraw image with remaining blur regions
+    CanvasEditor.redrawWithBlur(entry);
+    updatePreview();
+  }
+
+  function clearBlur() {
+    const entry = getActiveEntry();
+    if (!entry || entry.blurRegions.length === 0) return;
+    entry.blurRegions = [];
+    renderBlurList();
+    CanvasEditor.redrawWithBlur(entry);
+    updatePreview();
+  }
+
+  function renderBlurList() {
+    const entry = getActiveEntry();
+    const regions = entry?.blurRegions || [];
+
+    // Clear children except the message
+    while (dom.blurList.children.length > 1) {
+      dom.blurList.removeChild(dom.blurList.lastChild);
+    }
+
+    dom.blurMessage.style.display = regions.length === 0 ? 'block' : 'none';
+
+    regions.forEach((r, i) => {
+      const div = document.createElement('div');
+      div.className = 'blur-item';
+      const info = document.createElement('span');
+      info.className = 'blur-item__info';
+      info.textContent = (i + 1) + '. ' + r.w + 'x' + r.h + ' @ ' + r.x + ',' + r.y;
+      div.appendChild(info);
+      dom.blurList.appendChild(div);
+    });
+  }
+
+  function getBlurIntensity() {
+    return parseInt(dom.blurIntensity.value) || 20;
+  }
+
+  // ----------------------------------------------------------
   // Preview
   // ----------------------------------------------------------
   function setPreviewMode(mode) {
@@ -607,6 +694,7 @@ const App = (() => {
       canvas.width = entry.img.naturalWidth;
       canvas.height = entry.img.naturalHeight;
       ctx.drawImage(entry.img, 0, 0);
+      applyBlurToCtx(ctx, entry.blurRegions, 0, 0);
     } else {
       // Draw result with crop + padding
       if (entry.crop && entry.crop.w > 0 && entry.crop.h > 0) {
@@ -636,12 +724,43 @@ const App = (() => {
         if (csw > 0 && csh > 0) {
           ctx.drawImage(entry.img, csx, csy, csw, csh, dx, dy, csw, csh);
         }
+        // Apply blur regions offset by the crop/pad origin
+        applyBlurToCtx(ctx, entry.blurRegions, sx, sy);
       } else {
         canvas.width = entry.img.naturalWidth;
         canvas.height = entry.img.naturalHeight;
         ctx.drawImage(entry.img, 0, 0);
+        applyBlurToCtx(ctx, entry.blurRegions, 0, 0);
       }
     }
+  }
+
+  // ----------------------------------------------------------
+  // Blur rendering utility (used by preview and export)
+  // ----------------------------------------------------------
+  function applyBlurToCtx(ctx, regions, offsetX, offsetY) {
+    if (!regions || regions.length === 0) return;
+
+    regions.forEach(r => {
+      // Region coordinates are in original image space
+      // offsetX/Y is the origin of the current canvas in image space
+      const rx = r.x - offsetX;
+      const ry = r.y - offsetY;
+
+      ctx.save();
+      ctx.filter = 'blur(' + r.intensity + 'px)';
+
+      // Draw the blurred region by re-drawing from the canvas itself
+      // We need to clip to the region so blur doesn't leak
+      ctx.beginPath();
+      ctx.rect(rx, ry, r.w, r.h);
+      ctx.clip();
+
+      // Draw the entire canvas back onto itself through the blur filter + clip
+      ctx.drawImage(ctx.canvas, 0, 0);
+
+      ctx.restore();
+    });
   }
 
   // ----------------------------------------------------------
@@ -670,6 +789,9 @@ const App = (() => {
     updatePreview,
     recalcPadHints,
     renderGallery,
+    addBlurRegion,
+    renderBlurList,
+    getBlurIntensity,
     get dom() { return dom; },
   };
 

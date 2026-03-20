@@ -51,6 +51,23 @@ const Exporter = (() => {
       ctx.drawImage(entry.img, csx, csy, csw, csh, dx, dy, csw, csh);
     }
 
+    // Apply blur regions (coordinates are in original image space,
+    // offset by the crop/pad origin)
+    if (entry.blurRegions && entry.blurRegions.length > 0) {
+      entry.blurRegions.forEach(r => {
+        const rx = r.x - sx;
+        const ry = r.y - sy;
+
+        ctx.save();
+        ctx.filter = 'blur(' + r.intensity + 'px)';
+        ctx.beginPath();
+        ctx.rect(rx, ry, r.w, r.h);
+        ctx.clip();
+        ctx.drawImage(canvas, 0, 0);
+        ctx.restore();
+      });
+    }
+
     return canvas;
   }
 
@@ -90,12 +107,26 @@ const Exporter = (() => {
 
     const canvas = buildResult(entry);
     if (!canvas) {
-      // No crop -- export original
+      // No crop -- export original (with blur if any)
       const fallback = document.createElement('canvas');
       fallback.width = entry.img.naturalWidth;
       fallback.height = entry.img.naturalHeight;
       const ctx = fallback.getContext('2d');
       ctx.drawImage(entry.img, 0, 0);
+
+      // Apply blur regions
+      if (entry.blurRegions && entry.blurRegions.length > 0) {
+        entry.blurRegions.forEach(r => {
+          ctx.save();
+          ctx.filter = 'blur(' + r.intensity + 'px)';
+          ctx.beginPath();
+          ctx.rect(r.x, r.y, r.w, r.h);
+          ctx.clip();
+          ctx.drawImage(fallback, 0, 0);
+          ctx.restore();
+        });
+      }
+
       const format = getFormat();
       const baseName = entry.name.replace(/\.[^.]+$/, '');
       download(fallback, baseName + '_pixelgrid' + format.ext, format);

@@ -30,6 +30,12 @@ const CanvasEditor = (() => {
   const MIN_ZOOM = 0.2;
   const MAX_ZOOM = 10;
 
+  // Active tool: 'crop' or 'blur'
+  let activeTool = 'crop';
+
+  // Blur drawing state
+  let blurDraw = null;  // { x, y, w, h } while drawing a blur rect
+
   // Crop state (in original image coordinates)
   let crop = null;
   let isDragging = false;
@@ -202,6 +208,8 @@ const CanvasEditor = (() => {
     if (flags.center) drawCenterPoint();
     if (crop && crop.w > 0 && crop.h > 0) drawCropOverlay(ds);
     drawPadOverlay(ds);
+    drawBlurRegions(ds);
+    drawBlurPreview(ds);
   }
 
   function drawThirds() {
@@ -344,6 +352,43 @@ const CanvasEditor = (() => {
     const totalW = c.w + pad.sides * 2 + (pad.sidesExtra || 0);
     const totalH = c.h + pad.top + pad.bottom;
     overlayCtx.fillText(totalW + ' x ' + totalH, sx + sw / 2, sy - 4);
+  }
+
+  // ----------------------------------------------------------
+  // Blur region overlays (outlines on overlay canvas)
+  // ----------------------------------------------------------
+  function drawBlurRegions(ds) {
+    const entry = App.getActiveEntry();
+    if (!entry?.blurRegions || entry.blurRegions.length === 0) return;
+
+    overlayCtx.strokeStyle = 'rgba(212, 122, 122, 0.6)';
+    overlayCtx.lineWidth = 1.5;
+    overlayCtx.setLineDash([4, 3]);
+
+    entry.blurRegions.forEach(r => {
+      overlayCtx.strokeRect(r.x * ds, r.y * ds, r.w * ds, r.h * ds);
+    });
+
+    overlayCtx.setLineDash([]);
+  }
+
+  function drawBlurPreview(ds) {
+    if (!blurDraw || blurDraw.w === 0 || blurDraw.h === 0) return;
+
+    // Semi-transparent fill to show what will be blurred
+    overlayCtx.fillStyle = 'rgba(212, 122, 122, 0.15)';
+    overlayCtx.fillRect(blurDraw.x * ds, blurDraw.y * ds, blurDraw.w * ds, blurDraw.h * ds);
+
+    overlayCtx.strokeStyle = 'rgba(212, 122, 122, 0.8)';
+    overlayCtx.lineWidth = 1.5;
+    overlayCtx.setLineDash([]);
+    overlayCtx.strokeRect(blurDraw.x * ds, blurDraw.y * ds, blurDraw.w * ds, blurDraw.h * ds);
+
+    // Label
+    overlayCtx.fillStyle = 'rgba(212, 122, 122, 0.9)';
+    overlayCtx.font = '10px "JetBrains Mono", monospace';
+    overlayCtx.textAlign = 'center';
+    overlayCtx.fillText('BLUR', blurDraw.x * ds + blurDraw.w * ds / 2, blurDraw.y * ds + blurDraw.h * ds / 2 + 4);
   }
 
   // ----------------------------------------------------------
@@ -532,6 +577,16 @@ const CanvasEditor = (() => {
 
     const { sx, sy, ix, iy } = screenToImage(e);
 
+    // Blur tool mode
+    if (activeTool === 'blur') {
+      dragMode = 'blur-draw';
+      isDragging = true;
+      dragStart = { x: ix, y: iy };
+      blurDraw = { x: ix, y: iy, w: 0, h: 0 };
+      return;
+    }
+
+    // Crop tool mode
     if (crop && crop.w > 0 && crop.h > 0) {
       const handle = hitTestHandle(sx, sy);
       if (handle) {
@@ -579,6 +634,21 @@ const CanvasEditor = (() => {
     const imgW = currentEntry.img.naturalWidth;
     const imgH = currentEntry.img.naturalHeight;
 
+    if (dragMode === 'blur-draw') {
+      const x = Math.min(dragStart.x, ix);
+      const y = Math.min(dragStart.y, iy);
+      const w = Math.abs(ix - dragStart.x);
+      const h = Math.abs(iy - dragStart.y);
+      blurDraw = {
+        x: clamp(x, 0, imgW),
+        y: clamp(y, 0, imgH),
+        w: clamp(w, 0, imgW - clamp(x, 0, imgW)),
+        h: clamp(h, 0, imgH - clamp(y, 0, imgH)),
+      };
+      drawOverlay();
+      return;
+    }
+
     if (dragMode === 'draw') {
       const x = Math.min(dragStart.x, ix);
       const y = Math.min(dragStart.y, iy);
@@ -612,7 +682,25 @@ const CanvasEditor = (() => {
     if (dragMode === 'pan') {
       isDragging = false;
       dragMode = 'none';
-      overlayCanvas.style.cursor = 'crosshair';
+      overlayCanvas.style.cursor = activeTool === 'blur' ? 'crosshair' : 'crosshair';
+      return;
+    }
+
+    if (dragMode === 'blur-draw') {
+      isDragging = false;
+      dragMode = 'none';
+      if (blurDraw && blurDraw.w > 3 && blurDraw.h > 3) {
+        const region = {
+          x: Math.round(blurDraw.x),
+          y: Math.round(blurDraw.y),
+          w: Math.round(blurDraw.w),
+          h: Math.round(blurDraw.h),
+          intensity: App.getBlurIntensity(),
+        };
+        App.addBlurRegion(region);
+      }
+      blurDraw = null;
+      drawOverlay();
       return;
     }
 
@@ -774,6 +862,61 @@ const CanvasEditor = (() => {
     crop = null;
   }
 
+  function setTool(tool) {
+    activeTool = tool;
+    if (overlayCanvas) {
+      overlayCanvas.style.cursor = 'crosshair';
+    }
+  }
+
+  // Apply a single blur region to the main canvas (destructive on display)
+  function applyBlurRegion(region) {
+    if (!mainCtx || !currentEntry) return;
+
+    const ds = getDisplayScale();
+    const rx = region.x * ds;
+    const ry = region.y * ds;
+    const rw = region.w * ds;
+    const rh = region.h * ds;
+
+    mainCtx.save();
+    mainCtx.filter = 'blur(' + region.intensity + 'px)';
+    mainCtx.beginPath();
+    mainCtx.rect(rx, ry, rw, rh);
+    mainCtx.clip();
+    mainCtx.drawImage(mainCanvas, 0, 0);
+    mainCtx.restore();
+  }
+
+  // Redraw the entire image with all blur regions applied
+  function redrawWithBlur(entry) {
+    if (!mainCtx || !entry) return;
+
+    const ds = getDisplayScale();
+
+    // Redraw clean image
+    mainCtx.clearRect(0, 0, canvasW, canvasH);
+    mainCtx.drawImage(entry.img, 0, 0, canvasW, canvasH);
+
+    // Re-apply all blur regions
+    (entry.blurRegions || []).forEach(region => {
+      const rx = region.x * ds;
+      const ry = region.y * ds;
+      const rw = region.w * ds;
+      const rh = region.h * ds;
+
+      mainCtx.save();
+      mainCtx.filter = 'blur(' + region.intensity + 'px)';
+      mainCtx.beginPath();
+      mainCtx.rect(rx, ry, rw, rh);
+      mainCtx.clip();
+      mainCtx.drawImage(mainCanvas, 0, 0);
+      mainCtx.restore();
+    });
+
+    drawOverlay();
+  }
+
   // ----------------------------------------------------------
   // Helpers
   // ----------------------------------------------------------
@@ -797,6 +940,9 @@ const CanvasEditor = (() => {
     setCrop,
     clearCrop,
     resetZoom,
+    setTool,
+    applyBlurRegion,
+    redrawWithBlur,
     get crop() { return crop; },
     get displayScale() { return getDisplayScale(); },
   };

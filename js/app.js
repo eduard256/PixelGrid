@@ -471,11 +471,51 @@ const App = (() => {
     state.targetH = Math.max(1, parseInt(dom.targetH.value) || 1);
     updateAspectRatio();
     persistSize();
+    applyTargetSizeCrop();
+  }
 
-    // Recalculate pad hints if crop exists
-    if (getActiveEntry()?.crop) {
-      recalcPadHints();
+  // Apply target size as a centered crop on the current image.
+  // If target is smaller than image -- crop to that size centered.
+  // If target is larger -- crop to full image and let auto-pad handle the rest.
+  function applyTargetSizeCrop() {
+    const entry = getActiveEntry();
+    if (!entry) return;
+
+    const imgW = entry.img.naturalWidth;
+    const imgH = entry.img.naturalHeight;
+
+    // Crop dimensions: min of target and image size
+    const cropW = Math.min(state.targetW, imgW);
+    const cropH = Math.min(state.targetH, imgH);
+
+    // Center the crop on the image
+    const cropX = Math.round((imgW - cropW) / 2);
+    const cropY = Math.round((imgH - cropH) / 2);
+
+    entry.crop = { x: cropX, y: cropY, w: cropW, h: cropH };
+    entry.status = 'cropped';
+
+    // Auto-calculate padding if target is larger than image
+    if (state.targetW > imgW || state.targetH > imgH) {
+      const diffW = state.targetW - cropW;
+      const diffH = state.targetH - cropH;
+      const sidesPad = Math.floor(diffW / 2);
+      const topPad = Math.floor(diffH / 2);
+      const bottomPad = diffH - topPad;
+      entry.pad = {
+        sides: sidesPad,
+        top: topPad,
+        bottom: bottomPad,
+        sidesExtra: diffW % 2 !== 0 ? 1 : 0,
+      };
+    } else {
+      entry.pad = { sides: 0, top: 0, bottom: 0 };
     }
+
+    CanvasEditor.setCrop(entry.crop);
+    CanvasEditor.drawOverlay();
+    updatePanel();
+    renderGallery();
   }
 
   function updateAspectRatio() {

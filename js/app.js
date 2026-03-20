@@ -131,10 +131,10 @@ const App = (() => {
     dom.urlInput.addEventListener('click', (e) => e.stopPropagation());
     dom.urlLoadBtn.addEventListener('click', (e) => e.stopPropagation());
 
-    // Drag & drop
-    dom.editor.addEventListener('dragover', onDragOver);
-    dom.editor.addEventListener('dragleave', onDragLeave);
-    dom.editor.addEventListener('drop', onDrop);
+    // Drag & drop (on entire app so it works in both dropzone and workspace views)
+    document.body.addEventListener('dragover', onDragOver);
+    document.body.addEventListener('dragleave', onDragLeave);
+    document.body.addEventListener('drop', onDrop);
 
     // Target size
     dom.targetW.addEventListener('input', onTargetSizeChange);

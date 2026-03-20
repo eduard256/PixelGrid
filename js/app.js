@@ -184,17 +184,27 @@ const App = (() => {
   function onDragOver(e) {
     e.preventDefault();
     e.stopPropagation();
-    dom.dropzone?.classList.add('dropzone--dragover');
+    if (dom.dropzone && dom.dropzone.style.display !== 'none') {
+      dom.dropzone.classList.add('dropzone--dragover');
+    }
+    dom.sidebar.classList.add('sidebar--dragover');
   }
 
   function onDragLeave(e) {
     e.preventDefault();
-    dom.dropzone?.classList.remove('dropzone--dragover');
+    e.stopPropagation();
+    // Only remove highlight when leaving the window entirely
+    if (!e.relatedTarget || !document.body.contains(e.relatedTarget)) {
+      dom.dropzone?.classList.remove('dropzone--dragover');
+      dom.sidebar.classList.remove('sidebar--dragover');
+    }
   }
 
   function onDrop(e) {
     e.preventDefault();
+    e.stopPropagation();
     dom.dropzone?.classList.remove('dropzone--dragover');
+    dom.sidebar.classList.remove('sidebar--dragover');
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     if (files.length) addImages(files);
   }

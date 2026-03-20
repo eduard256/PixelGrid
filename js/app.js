@@ -20,6 +20,7 @@ const App = (() => {
       center: true,
       diagonals: true,
       centerRect: false,
+      cropThirds: true,
     },
     previewMode: 'result', // 'original' | 'result'
     activeTool: 'crop',    // 'crop' | 'blur'

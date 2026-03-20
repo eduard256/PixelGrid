@@ -296,6 +296,23 @@ const CanvasEditor = (() => {
 
     drawHandles(sx, sy, sw, sh);
 
+    // Thirds grid inside crop (green)
+    if (App.state.gridFlags.cropThirds && sw > 20 && sh > 20) {
+      overlayCtx.strokeStyle = 'rgba(169, 212, 184, 0.45)';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([]);
+
+      const thirdW = sw / 3;
+      const thirdH = sh / 3;
+
+      for (let i = 1; i <= 2; i++) {
+        // Vertical lines inside crop
+        drawLine(sx + Math.round(thirdW * i), sy, sx + Math.round(thirdW * i), sy + sh);
+        // Horizontal lines inside crop
+        drawLine(sx, sy + Math.round(thirdH * i), sx + sw, sy + Math.round(thirdH * i));
+      }
+    }
+
     // Size label
     overlayCtx.fillStyle = 'rgba(184, 169, 212, 0.9)';
     overlayCtx.font = '11px "JetBrains Mono", monospace';

@@ -554,7 +554,7 @@ body {
 .dropzone__url {
   margin: 14px 0 8px;
   position: relative;
-  z-index: 5;
+  z-index: 10;
 }
 
 .dropzone__url-row {
@@ -588,10 +588,7 @@ body {
 }
 
 .dropzone__input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
+  display: none;
 }
 
 /* --- Workspace --- */

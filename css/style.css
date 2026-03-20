@@ -836,6 +836,14 @@ body {
   object-fit: contain;
 }
 
+.panel__resize-x {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
 /* Quality label */
 .panel__quality-label {
   font-size: 0.78rem;

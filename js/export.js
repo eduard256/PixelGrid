@@ -86,6 +86,37 @@ const Exporter = (() => {
   }
 
   // ----------------------------------------------------------
+  // Get export resize dimensions (null if not set)
+  // ----------------------------------------------------------
+  function getResizeSize() {
+    const w = parseInt(App.dom.exportW.value) || 0;
+    const h = parseInt(App.dom.exportH.value) || 0;
+    if (w > 0 && h > 0) return { w, h };
+    return null;
+  }
+
+  // ----------------------------------------------------------
+  // Resize a canvas to target dimensions via high-quality scaling
+  // ----------------------------------------------------------
+  function resizeCanvas(srcCanvas, targetW, targetH) {
+    if (srcCanvas.width === targetW && srcCanvas.height === targetH) {
+      return srcCanvas;
+    }
+
+    const dst = document.createElement('canvas');
+    dst.width = targetW;
+    dst.height = targetH;
+    const ctx = dst.getContext('2d');
+
+    // Use smooth scaling for downscale
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(srcCanvas, 0, 0, targetW, targetH);
+
+    return dst;
+  }
+
+  // ----------------------------------------------------------
   // Download helper
   // ----------------------------------------------------------
   function download(canvas, filename, format) {
@@ -105,13 +136,13 @@ const Exporter = (() => {
     const entry = App.getActiveEntry();
     if (!entry) return;
 
-    const canvas = buildResult(entry);
+    let canvas = buildResult(entry);
     if (!canvas) {
       // No crop -- export original (with blur if any)
-      const fallback = document.createElement('canvas');
-      fallback.width = entry.img.naturalWidth;
-      fallback.height = entry.img.naturalHeight;
-      const ctx = fallback.getContext('2d');
+      canvas = document.createElement('canvas');
+      canvas.width = entry.img.naturalWidth;
+      canvas.height = entry.img.naturalHeight;
+      const ctx = canvas.getContext('2d');
       ctx.drawImage(entry.img, 0, 0);
 
       // Apply blur regions
@@ -122,15 +153,16 @@ const Exporter = (() => {
           ctx.beginPath();
           ctx.rect(r.x, r.y, r.w, r.h);
           ctx.clip();
-          ctx.drawImage(fallback, 0, 0);
+          ctx.drawImage(canvas, 0, 0);
           ctx.restore();
         });
       }
+    }
 
-      const format = getFormat();
-      const baseName = entry.name.replace(/\.[^.]+$/, '');
-      download(fallback, baseName + '_pixelgrid' + format.ext, format);
-      return;
+    // Apply resize if specified
+    const resize = getResizeSize();
+    if (resize) {
+      canvas = resizeCanvas(canvas, resize.w, resize.h);
     }
 
     const format = getFormat();
@@ -143,10 +175,15 @@ const Exporter = (() => {
   // ----------------------------------------------------------
   function exportAll() {
     const format = getFormat();
+    const resize = getResizeSize();
 
     App.state.images.forEach((entry, idx) => {
-      const canvas = buildResult(entry);
+      let canvas = buildResult(entry);
       if (!canvas) return; // skip non-cropped
+
+      if (resize) {
+        canvas = resizeCanvas(canvas, resize.w, resize.h);
+      }
 
       const baseName = entry.name.replace(/\.[^.]+$/, '');
       // Stagger downloads slightly so browser doesn't block them

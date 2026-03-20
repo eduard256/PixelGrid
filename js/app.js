@@ -85,6 +85,9 @@ const App = (() => {
       qualityRow:    document.getElementById('qualityRow'),
       qualitySlider: document.getElementById('qualitySlider'),
       qualityValue:  document.getElementById('qualityValue'),
+      exportW:       document.getElementById('exportW'),
+      exportH:       document.getElementById('exportH'),
+      exportSizeHint: document.getElementById('exportSizeHint'),
       exportBtn:     document.getElementById('exportBtn'),
       exportAllBtn:  document.getElementById('exportAllBtn'),
 

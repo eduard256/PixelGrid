@@ -294,6 +294,19 @@
               <option value="webp">WebP</option>
             </select>
           </div>
+          <div class="panel__field">
+            <label>Resize output</label>
+            <div class="panel__row">
+              <div class="panel__field">
+                <input type="number" id="exportW" class="input input--mono input--sm" placeholder="W" min="1">
+              </div>
+              <span class="panel__resize-x">x</span>
+              <div class="panel__field">
+                <input type="number" id="exportH" class="input input--mono input--sm" placeholder="H" min="1">
+              </div>
+            </div>
+            <span class="panel__field-hint" id="exportSizeHint">Leave empty to export at original resolution</span>
+          </div>
           <div class="panel__row" id="qualityRow" style="display:none;">
             <label class="panel__quality-label">Quality: <span id="qualityValue">92</span>%</label>
             <input type="range" id="qualitySlider" class="slider" min="1" max="100" value="92">

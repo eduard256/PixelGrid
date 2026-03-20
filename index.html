@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PixelGrid -- Precision Image Cropper</title>
+  <meta name="description" content="Professional image cropping tool with grid overlay, auto-padding, and batch processing">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header__brand">
+        <svg class="header__logo" viewBox="0 0 32 32" width="32" height="32" fill="none">
+          <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+          <rect x="18" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+          <rect x="2" y="18" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+          <rect x="18" y="18" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.8"/>
+          <line x1="16" y1="4" x2="16" y2="28" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <line x1="4" y1="16" x2="28" y2="16" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+        </svg>
+        <h1 class="header__title">PixelGrid</h1>
+      </div>
+
+      <div class="header__controls">
+        <!-- Target Size -->
+        <div class="size-input">
+          <label class="size-input__label">Target size</label>
+          <div class="size-input__fields">
+            <div class="size-input__field">
+              <input type="number" id="targetWidth" class="input input--mono" value="1280" min="1" max="10000" step="1">
+              <span class="size-input__unit">W</span>
+            </div>
+            <svg class="size-input__link" viewBox="0 0 16 16" width="16" height="16">
+              <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </svg>
+            <div class="size-input__field">
+              <input type="number" id="targetHeight" class="input input--mono" value="720" min="1" max="10000" step="1">
+              <span class="size-input__unit">H</span>
+            </div>
+            <span class="size-input__ratio" id="aspectRatio">16:9</span>
+          </div>
+        </div>
+
+        <!-- Grid Toggles -->
+        <div class="grid-toggles">
+          <button class="toggle toggle--active" data-grid="thirds" title="Rule of thirds">
+            <svg viewBox="0 0 20 20" width="18" height="18">
+              <rect x="1" y="1" width="18" height="18" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <line x1="7" y1="1" x2="7" y2="19" stroke="currentColor" stroke-width="0.8"/>
+              <line x1="13" y1="1" x2="13" y2="19" stroke="currentColor" stroke-width="0.8"/>
+              <line x1="1" y1="7" x2="19" y2="7" stroke="currentColor" stroke-width="0.8"/>
+              <line x1="1" y1="13" x2="19" y2="13" stroke="currentColor" stroke-width="0.8"/>
+            </svg>
+          </button>
+          <button class="toggle toggle--active" data-grid="center" title="Center point">
+            <svg viewBox="0 0 20 20" width="18" height="18">
+              <circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <line x1="10" y1="4" x2="10" y2="8" stroke="currentColor" stroke-width="1"/>
+              <line x1="10" y1="12" x2="10" y2="16" stroke="currentColor" stroke-width="1"/>
+              <line x1="4" y1="10" x2="8" y2="10" stroke="currentColor" stroke-width="1"/>
+              <line x1="12" y1="10" x2="16" y2="10" stroke="currentColor" stroke-width="1"/>
+            </svg>
+          </button>
+          <button class="toggle toggle--active" data-grid="diagonals" title="Diagonals">
+            <svg viewBox="0 0 20 20" width="18" height="18">
+              <rect x="1" y="1" width="18" height="18" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <line x1="1" y1="1" x2="19" y2="19" stroke="currentColor" stroke-width="0.8"/>
+              <line x1="19" y1="1" x2="1" y2="19" stroke="currentColor" stroke-width="0.8"/>
+            </svg>
+          </button>
+          <button class="toggle" data-grid="centerRect" title="Center rectangle">
+            <svg viewBox="0 0 20 20" width="18" height="18">
+              <rect x="1" y="1" width="18" height="18" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <rect x="6" y="6" width="8" height="8" rx="0.5" stroke="currentColor" stroke-width="1" fill="none" stroke-dasharray="2 1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+
+      <!-- Sidebar: Image Gallery -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar__header">
+          <h2 class="sidebar__title">Images</h2>
+          <span class="sidebar__count" id="imageCount">0</span>
+        </div>
+        <div class="sidebar__gallery" id="gallery">
+          <!-- Thumbnails injected by JS -->
+        </div>
+        <button class="sidebar__add" id="addMoreBtn" title="Add more images">
+          <svg viewBox="0 0 20 20" width="20" height="20">
+            <line x1="10" y1="4" x2="10" y2="16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="4" y1="10" x2="16" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>Add images</span>
+        </button>
+      </aside>
+
+      <!-- Canvas Area -->
+      <section class="editor" id="editor">
+
+        <!-- Drop Zone (shown when no images) -->
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone__content">
+            <div class="dropzone__icon">
+              <svg viewBox="0 0 64 64" width="64" height="64" fill="none">
+                <rect x="8" y="12" width="48" height="40" rx="4" stroke="currentColor" stroke-width="2"/>
+                <circle cx="22" cy="28" r="5" stroke="currentColor" stroke-width="1.5"/>
+                <polyline points="8,44 24,32 36,40 44,34 56,42" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="32" y1="2" x2="32" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <polyline points="27,5 32,2 37,5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <h2 class="dropzone__title">Drop your screenshots here</h2>
+            <p class="dropzone__subtitle">or click to browse files</p>
+            <p class="dropzone__hint">Supports PNG, JPG, WebP -- multiple files allowed</p>
+          </div>
+          <input type="file" id="fileInput" class="dropzone__input" multiple accept="image/png,image/jpeg,image/webp">
+        </div>
+
+        <!-- Canvas Workspace (hidden until images loaded) -->
+        <div class="workspace" id="workspace" style="display:none;">
+          <div class="workspace__canvas-wrap" id="canvasWrap">
+            <canvas id="mainCanvas"></canvas>
+            <canvas id="overlayCanvas"></canvas>
+          </div>
+
+          <!-- Image info bar -->
+          <div class="workspace__info" id="imageInfo">
+            <span class="info-tag" id="infoOrigSize">--</span>
+            <span class="info-tag" id="infoCropSize">--</span>
+            <span class="info-tag" id="infoZoom">100%</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Crop & Padding Controls -->
+      <aside class="panel" id="panel" style="display:none;">
+
+        <!-- Crop section -->
+        <div class="panel__section">
+          <h3 class="panel__heading">Crop Selection</h3>
+          <div class="panel__row">
+            <div class="panel__field">
+              <label>X</label>
+              <input type="number" id="cropX" class="input input--mono input--sm" value="0">
+            </div>
+            <div class="panel__field">
+              <label>Y</label>
+              <input type="number" id="cropY" class="input input--mono input--sm" value="0">
+            </div>
+          </div>
+          <div class="panel__row">
+            <div class="panel__field">
+              <label>W</label>
+              <input type="number" id="cropW" class="input input--mono input--sm" value="0">
+            </div>
+            <div class="panel__field">
+              <label>H</label>
+              <input type="number" id="cropH" class="input input--mono input--sm" value="0">
+            </div>
+          </div>
+          <button class="btn btn--secondary btn--full" id="resetCropBtn">Reset crop</button>
+        </div>
+
+        <!-- Auto-pad section -->
+        <div class="panel__section">
+          <h3 class="panel__heading">Auto-Pad</h3>
+          <div class="panel__message" id="padMessage">
+            Select a crop area first
+          </div>
+          <div class="panel__pad-controls" id="padControls" style="display:none;">
+            <div class="panel__field">
+              <label>Sides (L+R)</label>
+              <input type="number" id="padSides" class="input input--mono input--sm" value="0" min="0">
+              <span class="panel__field-hint" id="padSidesHint">+0px each side</span>
+            </div>
+            <div class="panel__field">
+              <label>Top</label>
+              <input type="number" id="padTop" class="input input--mono input--sm" value="0" min="0">
+              <span class="panel__field-hint" id="padTopHint">+0px</span>
+            </div>
+            <div class="panel__field">
+              <label>Bottom</label>
+              <input type="number" id="padBottom" class="input input--mono input--sm" value="0" min="0">
+              <span class="panel__field-hint" id="padBottomHint">+0px</span>
+            </div>
+            <button class="btn btn--primary btn--full" id="autoPadBtn">Auto-fill to target size</button>
+            <div class="panel__warning" id="padWarning" style="display:none;">
+              <svg viewBox="0 0 16 16" width="14" height="14">
+                <path d="M8 1L1 14h14L8 1z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                <line x1="8" y1="6" x2="8" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                <circle cx="8" cy="12" r="0.8" fill="currentColor"/>
+              </svg>
+              <span id="padWarningText">Not enough original pixels on some sides</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Before/After -->
+        <div class="panel__section">
+          <h3 class="panel__heading">Preview</h3>
+          <div class="panel__preview-toggle">
+            <button class="btn btn--ghost" id="previewOrigBtn">Original</button>
+            <button class="btn btn--ghost btn--active" id="previewResultBtn">Result</button>
+          </div>
+          <div class="panel__preview-box" id="previewBox">
+            <canvas id="previewCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Export -->
+        <div class="panel__section">
+          <h3 class="panel__heading">Export</h3>
+          <div class="panel__row">
+            <select id="exportFormat" class="input input--select">
+              <option value="png">PNG</option>
+              <option value="jpeg">JPG</option>
+              <option value="webp">WebP</option>
+            </select>
+          </div>
+          <div class="panel__row" id="qualityRow" style="display:none;">
+            <label class="panel__quality-label">Quality: <span id="qualityValue">92</span>%</label>
+            <input type="range" id="qualitySlider" class="slider" min="1" max="100" value="92">
+          </div>
+          <button class="btn btn--primary btn--full" id="exportBtn">
+            <svg viewBox="0 0 16 16" width="15" height="15">
+              <path d="M8 2v8M4 7l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 12v2h12v-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Download
+          </button>
+          <button class="btn btn--secondary btn--full" id="exportAllBtn" style="display:none;">Download all</button>
+        </div>
+
+      </aside>
+    </main>
+
+  </div>
+
+  <!-- Hidden file input for "add more" -->
+  <input type="file" id="fileInputMore" hidden multiple accept="image/png,image/jpeg,image/webp">
+
+  <script src="js/app.js"></script>
+  <script src="js/canvas.js"></script>
+  <script src="js/export.js"></script>
+</body>
+</html>
